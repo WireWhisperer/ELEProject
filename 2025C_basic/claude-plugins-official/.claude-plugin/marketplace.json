@@ -1,0 +1,29 @@
+{
+  "name": "local-plugins",
+  "description": "Claude Code official plugins marketplace",
+  "owner": {
+    "name": "Anthropic",
+    "email": "support@anthropic.com"
+  },
+  "plugins": [
+    {
+      "name": "superpowers",
+      "description": "Core skills library for Claude Code: TDD, debugging, collaboration patterns, and proven techniques",
+      "version": "6.1.1",
+      "source": "superpowers/6.1.1",
+      "author": {
+        "name": "Jesse Vincent",
+        "email": "jesse@fsck.com"
+      }
+    },
+    {
+      "name": "skill-creator",
+      "description": "Create new skills, improve existing skills, and measure skill performance",
+      "source": "skill-creator/1afdc0d238b6",
+      "author": {
+        "name": "Anthropic",
+        "email": "support@anthropic.com"
+      }
+    }
+  ]
+}
