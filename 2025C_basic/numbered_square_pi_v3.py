@@ -6,7 +6,7 @@
 核心：先在透视校正图中检测白色编号，以编号中心约束正方形中心，
 再在 6~12 cm 范围搜索边长；不再要求先恢复所有实心正方形。
 
-依赖：本文件与 detect_squares_pi_single_frame_v6.py 放在同一目录。
+依赖：本文件与 detect_squares_pi_single_frame_v7.py 放在同一目录。
 运行：python3 numbered_square_pi_v3.py
       python3 numbered_square_pi_v3.py --digit 7 --debug
 """
@@ -20,7 +20,7 @@ import cv2
 import numpy as np
 from picamera2 import Picamera2
 
-from detect_squares_pi_single_frame_v6 import (
+from detect_squares_pi_single_frame_v7 import (
     find_a4_outer_quad, order_points, correct_square_size
 )
 
