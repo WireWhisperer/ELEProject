@@ -555,14 +555,18 @@ def process_frame(frame, requested_digit, hog, bank, debug=False):
     return img, result
 
 
-def read_digit(value):
-    if value is not None:
-        return value
+def wait_for_digit(ser):
+    """等待串口发来数字字符(0-9)，非数字则继续等待。"""
+    print('Waiting for serial command (digit 0-9)...')
     while True:
-        text = input('Input requested square ID (0-9): ').strip()
-        if len(text) == 1 and text.isdigit():
-            return int(text)
-        print('Invalid input.')
+        raw = ser.readline()
+        line = raw.decode('utf-8', errors='ignore').strip()
+        if line:
+            print(f'Received: {line}')
+            for ch in line:
+                if ch.isdigit():
+                    print(f'Target ID set to: {ch}')
+                    return int(ch)
 
 
 def main():
@@ -573,7 +577,13 @@ def main():
     parser.add_argument('--warmup', type=float, default=2.0)
     args = parser.parse_args()
 
-    requested = read_digit(args.digit)
+    ser = serial.Serial('/dev/ttyAMA0', 115200, timeout=0.1)
+
+    if args.digit is not None:
+        requested = args.digit
+    else:
+        requested = wait_for_digit(ser)
+
     print('Building offline OCR templates...')
     hog, bank = build_template_bank()
 
@@ -584,9 +594,7 @@ def main():
     camera.start()
     time.sleep(max(args.warmup, 0.0))
 
-    ser = serial.Serial('/dev/ttyAMA0', 115200, timeout=0.1)
-
-    input(f'ID={requested}. Place target, then press Enter to measure...')
+    print(f'ID={requested}. Measuring...')
     try:
         frame = None
         for _ in range(3):
