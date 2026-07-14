@@ -612,11 +612,8 @@ if __name__=='__main__':
             ser.write(msg.encode('utf-8'))
             print(f'Sent via serial: {msg.strip()}')
 
-        # 有桌面环境时显示；通过 SSH 无显示环境时，注释下面四行即可。
-        cv2.imshow('Original',frame_bgr)
-        cv2.imshow('Detection result',result)
-        print('Press any key to exit.')
-        cv2.waitKey(0)
+        print('Waiting 1s before exit...')
+        time.sleep(1.0)
     finally:
         ser.close()
         picam2.stop()

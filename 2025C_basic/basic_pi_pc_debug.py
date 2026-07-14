@@ -46,14 +46,14 @@ def get_compensation(distance_cm):
     # 超出范围时用最近段
     return COMPENSATION_TABLE[max(COMPENSATION_TABLE.keys(), key=lambda r: r[0])]
 
-    
+
 def get_contour_center(contour):
     """计算轮廓中心点"""
     M = cv2.moments(contour)
     if M['m00'] == 0:
         return (0, 0)
     return (int(M['m10'] / M['m00']), int(M['m01'] / M['m00']))
-	
+
 def distance(p1, p2):
     return np.linalg.norm(np.array(p1) - np.array(p2))
 
@@ -248,7 +248,7 @@ def process_frame(frame):
     return img, measurement
 
 if __name__ == "__main__":
-    # 电脑调试模式：实时预览；按空格一键触发7帧融合并显示最终结果。
+    # 等待2秒后拍照，发送数据后等待1秒退出。
     current_mode = "normal"
     SAMPLE_COUNT = 7
     MIN_VALID_COUNT = 4
@@ -262,65 +262,39 @@ if __name__ == "__main__":
 
     ser = serial.Serial('/dev/ttyAMA0', 115200, timeout=0.1)
 
-    print("实时预览：空格键测量，s保存，q退出")
-
-    last_display = None
+    print("Capturing...")
     try:
-        while True:
-            frame_rgb = picam2.capture_array()
-            frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-            preview = frame_bgr.copy()
-            cv2.putText(preview, "SPACE: measure   Q: quit", (20, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-            cv2.imshow("Basic Measurement", preview if last_display is None else last_display)
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                break
-            if key == ord('s'):
-                cv2.imwrite('saved_frame.jpg', preview if last_display is None else last_display)
-                continue
-            if key != ord(' '):
-                # 测量结果锁屏约1秒后恢复实时预览。
-                if last_display is not None and time.monotonic() - display_since > 1.0:
-                    last_display = None
-                continue
+        valid = []
+        output = None
+        t0 = time.perf_counter()
+        for _ in range(SAMPLE_COUNT):
+            rgb = picam2.capture_array()
+            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            output, m = process_frame(bgr)
+            if (m['valid'] and 90.0 <= m['distance_cm'] <= 210.0
+                    and 9.0 <= m['size_cm'] <= 17.0):
+                valid.append(m)
 
-            valid = []
-            output = preview
-            t0 = time.perf_counter()
-            for _ in range(SAMPLE_COUNT):
-                rgb = picam2.capture_array()
-                bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-                output, m = process_frame(bgr)
-                if (m['valid'] and 90.0 <= m['distance_cm'] <= 210.0
-                        and 9.0 <= m['size_cm'] <= 17.0):
-                    valid.append(m)
+        if len(valid) < MIN_VALID_COUNT:
+            print(f'Measurement failed: valid={len(valid)}/{SAMPLE_COUNT}')
+        else:
+            kinds = [m['object_type'] for m in valid]
+            final_type = max(set(kinds), key=kinds.count)
+            same = [m for m in valid if m['object_type'] == final_type]
+            if len(same) < 3:
+                same = valid
+            final_d = float(np.median([m['distance_cm'] for m in same]))
+            final_x = float(np.median([m['size_cm'] for m in same]))
+            print(f'FINAL: D={final_d:.1f}cm, x={final_x:.2f}cm, type={final_type}, '
+                  f'valid={len(valid)}/{SAMPLE_COUNT}, time={time.perf_counter()-t0:.2f}s')
+            msg = f"D={final_d:.1f},x={final_x:.2f},type={final_type}\r\n"
+            ser.write(msg.encode('utf-8'))
+            print(f'Sent via serial: {msg.strip()}')
 
-            if len(valid) < MIN_VALID_COUNT:
-                cv2.putText(output, f"FAILED valid={len(valid)}/{SAMPLE_COUNT}",
-                            (20, 165), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
-                            (0, 0, 255), 2)
-                print(f'Measurement failed: valid={len(valid)}/{SAMPLE_COUNT}')
-            else:
-                # 形状多数表决；只融合多数形状的帧。
-                kinds = [m['object_type'] for m in valid]
-                final_type = max(set(kinds), key=kinds.count)
-                same = [m for m in valid if m['object_type'] == final_type]
-                if len(same) < 3:
-                    same = valid
-                final_d = float(np.median([m['distance_cm'] for m in same]))
-                final_x = float(np.median([m['size_cm'] for m in same]))
-                cv2.rectangle(output, (10, 130), (560, 230), (0, 0, 0), -1)
-                cv2.putText(output, f"FINAL D={final_d:.1f}cm", (20, 170),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
-                cv2.putText(output, f"FINAL x={final_x:.2f}cm {final_type}", (20, 210),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
-                print(f'FINAL: D={final_d:.1f}cm, x={final_x:.2f}cm, type={final_type}, '
-                      f'valid={len(valid)}/{SAMPLE_COUNT}, time={time.perf_counter()-t0:.2f}s')
-                msg = f"D={final_d:.1f},x={final_x:.2f},type={final_type}\r\n"
-                ser.write(msg.encode('utf-8'))
-            last_display = output
-            display_since = time.monotonic()
+        if output is not None:
+            cv2.imwrite('basic_pi_result.jpg', output)
+        print('Waiting 1s before exit...')
+        time.sleep(1.0)
     finally:
         ser.close()
         picam2.stop()

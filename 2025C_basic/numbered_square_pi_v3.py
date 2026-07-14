@@ -610,9 +610,8 @@ def main():
             print(f'Sent via serial: {msg.strip()}')
         else:
             print('RESULT: measurement failed; use --debug to inspect images.')
-        if not args.no_gui:
-            cv2.imshow('Numbered Square Pi V3', output)
-            cv2.waitKey(0)
+        print('Waiting 1s before exit...')
+        time.sleep(1.0)
     finally:
         ser.close()
         camera.stop()
