@@ -33,6 +33,7 @@ COMMANDS = {
     'A': 'basic_pi_pc_debug.py',
     'B': 'detect_squares_pi_single_frame_v7.py',
     'C': 'numbered_square_pi_v3.py',
+    'D': 'rotated_square_measure_pi.py',
 }
 
 # GPIO 引脚（BCM 编号）
