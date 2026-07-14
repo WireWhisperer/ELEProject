@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import os
 import time
 import serial
 from dataclasses import dataclass
@@ -7,6 +8,8 @@ from typing import List, Tuple
 from picamera2 import Picamera2
 
 # ==================== 原距离标定（保持不变） ====================
+IMAGES_DIR = 'images'
+
 DISTANCE_CALIBRATION = [
     (761.0, 200),(781.5, 195),(801.0, 190),(822.0, 185),(844.0, 180),
     (868.0, 175),(893.0, 170),(919.0, 165),(946.5, 160),(975.0, 155),
@@ -545,17 +548,17 @@ def process_frame(frame):
                                   np.ones((3,3),np.uint8))
 
     # 单帧调试文件：用于定位外框、透视、裁剪和二值化问题。
-    cv2.imwrite('debug_01_gray.jpg',gray)
-    cv2.imwrite('debug_02_outer_thresh.jpg',thresh)
-    cv2.imwrite('debug_03_warped.jpg',warped)
+    cv2.imwrite(os.path.join(IMAGES_DIR, 'debug_01_gray.jpg'),gray)
+    cv2.imwrite(os.path.join(IMAGES_DIR, 'debug_02_outer_thresh.jpg'),thresh)
+    cv2.imwrite(os.path.join(IMAGES_DIR, 'debug_03_warped.jpg'),warped)
     border_widths=estimate_black_border_widths(warped)
     print(f'Warped black border widths [top,bottom,left,right]: {border_widths}; expected about {border_pix}px')
-    cv2.imwrite('debug_04_inner_gray.jpg',inner_gray)
-    cv2.imwrite('debug_05_inner_binary.jpg',inner_binary)
+    cv2.imwrite(os.path.join(IMAGES_DIR, 'debug_04_inner_gray.jpg'),inner_gray)
+    cv2.imwrite(os.path.join(IMAGES_DIR, 'debug_05_inner_binary.jpg'),inner_binary)
     print(f'Otsu threshold: {otsu_value:.1f}')
 
     squares,clean_binary=detect_squares_robust(inner_binary)
-    cv2.imwrite('debug_06_clean_binary.jpg',clean_binary)
+    cv2.imwrite(os.path.join(IMAGES_DIR, 'debug_06_clean_binary.jpg'),clean_binary)
     if not squares:
         cv2.putText(img,'No valid square',(20,85),cv2.FONT_HERSHEY_SIMPLEX,.75,(0,0,255),2)
         return img, distance_cm, None
@@ -597,13 +600,13 @@ if __name__=='__main__':
     try:
         frame_rgb=picam2.capture_array()
         frame_bgr=cv2.cvtColor(frame_rgb,cv2.COLOR_RGB2BGR)
-        cv2.imwrite('debug_00_original.jpg',frame_bgr)
+        cv2.imwrite(os.path.join(IMAGES_DIR, 'debug_00_original.jpg'),frame_bgr)
         print(f'Captured: {frame_bgr.shape[1]}x{frame_bgr.shape[0]}')
 
         start=time.perf_counter()
         result, distance_cm, side_cm = process_frame(frame_bgr)
         elapsed=(time.perf_counter()-start)*1000.0
-        cv2.imwrite('debug_07_result.jpg',result)
+        cv2.imwrite(os.path.join(IMAGES_DIR, 'debug_07_result.jpg'),result)
         print(f'Processing time: {elapsed:.1f} ms')
         print('Saved debug_00_original.jpg through debug_07_result.jpg')
 

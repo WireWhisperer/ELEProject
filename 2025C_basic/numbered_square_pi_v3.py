@@ -26,6 +26,8 @@ from detect_squares_pi_single_frame_v7 import (
     estimate_distance, get_outer_frame_params
 )
 
+IMAGES_DIR = 'images'
+
 A4_W_CM, A4_H_CM = 21.0, 29.7
 BORDER_CM = 2.0
 # 第三问单独使用更高透视分辨率，保留更多数字笔画。
@@ -520,12 +522,12 @@ def process_frame(frame, requested_digit, hog, bank, debug=False):
           f'{[round(v, 3) for v in square.side_supports]}')
 
     if debug:
-        cv2.imwrite('d3_01_gray.jpg', gray)
-        cv2.imwrite('d3_02_outer_binary.jpg', outer_binary)
-        cv2.imwrite('d3_03_warped.jpg', warped)
-        cv2.imwrite('d3_04_inner_gray.jpg', inner_gray)
-        cv2.imwrite('d3_05_black.jpg', black)
-        cv2.imwrite('d3_06_black_digits_filled.jpg', black_filled)
+        cv2.imwrite(os.path.join(IMAGES_DIR, 'd3_01_gray.jpg'), gray)
+        cv2.imwrite(os.path.join(IMAGES_DIR, 'd3_02_outer_binary.jpg'), outer_binary)
+        cv2.imwrite(os.path.join(IMAGES_DIR, 'd3_03_warped.jpg'), warped)
+        cv2.imwrite(os.path.join(IMAGES_DIR, 'd3_04_inner_gray.jpg'), inner_gray)
+        cv2.imwrite(os.path.join(IMAGES_DIR, 'd3_05_black.jpg'), black)
+        cv2.imwrite(os.path.join(IMAGES_DIR, 'd3_06_black_digits_filled.jpg'), black_filled)
         debug_warp = cv2.cvtColor(inner_gray, cv2.COLOR_GRAY2BGR)
         for d in digits:
             x, y, w, h = d.bbox
@@ -535,9 +537,9 @@ def process_frame(frame, requested_digit, hog, bank, debug=False):
                         cv2.FONT_HERSHEY_SIMPLEX, .45, color, 1)
         cv2.polylines(debug_warp, [np.round(square.corners).astype(np.int32)],
                       True, (0, 0, 255), 2)
-        cv2.imwrite('d3_07_digit_and_square.jpg', debug_warp)
+        cv2.imwrite(os.path.join(IMAGES_DIR, 'd3_07_digit_and_square.jpg'), debug_warp)
         for i, d in enumerate(digits):
-            cv2.imwrite(f'd3_digit_{i}_pred_{d.predicted}.png', d.mask)
+            cv2.imwrite(os.path.join(IMAGES_DIR, f'd3_digit_{i}_pred_{d.predicted}.png'), d.mask)
 
     result = {
         'requested_digit': requested_digit,
@@ -602,7 +604,7 @@ def main():
         # RGB888在部分Picamera2版本返回RGB；若你们实测颜色正常，保留此转换。
         bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         output, result = process_frame(bgr, requested, hog, bank, args.debug)
-        cv2.imwrite('numbered_square_pi_v3_result.jpg', output)
+        cv2.imwrite(os.path.join(IMAGES_DIR, 'numbered_square_pi_v3_result.jpg'), output)
         if result:
             print(f"RESULT: ID={requested}, x={result['side_cm']:.2f} cm")
             msg = f"D={result['distance_cm']:.1f},x={result['side_cm']:.2f},type=square\r\n"

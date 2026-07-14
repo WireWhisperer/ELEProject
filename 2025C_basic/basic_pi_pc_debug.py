@@ -1,5 +1,6 @@
 import numpy as np
 import argparse
+import os
 import time
 import serial
 import cv2
@@ -249,6 +250,7 @@ def process_frame(frame):
 
 if __name__ == "__main__":
     # 等待2秒后拍照，发送数据后等待1秒退出。
+    IMAGES_DIR = 'images'
     current_mode = "normal"
     SAMPLE_COUNT = 7
     MIN_VALID_COUNT = 4
@@ -292,7 +294,7 @@ if __name__ == "__main__":
             print(f'Sent via serial: {msg.strip()}')
 
         if output is not None:
-            cv2.imwrite('basic_pi_result.jpg', output)
+            cv2.imwrite(os.path.join(IMAGES_DIR, 'basic_pi_result.jpg'), output)
         print('Waiting 1s before exit...')
         time.sleep(1.0)
     finally:
