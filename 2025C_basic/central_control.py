@@ -134,23 +134,33 @@ def read_line_from_serial(ser):
     return None
 
 
-def run_script(script_name):
-    """用当前 Python 解释器运行同目录下的脚本。"""
+def run_script(script_name, extra_args=None):
+    """用当前 Python 解释器运行同目录下的脚本。extra_args 可选，如 ['--digit', '3']"""
     script_path = os.path.join(SCRIPT_DIR, script_name)
     python = sys.executable
-    print(f'--- Running: {python} {script_path} ---')
+    cmd = [python, script_path]
+    if extra_args:
+        cmd.extend(extra_args)
+    print(f'--- Running: {" ".join(cmd)} ---')
 
     # LED2 点亮：开始执行子脚本
     if GPIO_AVAILABLE:
         GPIO.output(LED2_PIN, GPIO.HIGH)
 
-    subprocess.run([python, script_path], cwd=SCRIPT_DIR)
+    result = subprocess.run(cmd, cwd=SCRIPT_DIR,
+                            capture_output=True, text=True)
 
     # LED2 熄灭：子脚本执行完毕
     if GPIO_AVAILABLE:
         GPIO.output(LED2_PIN, GPIO.LOW)
 
-    print(f'--- Finished: {script_name} ---\n')
+    # 输出子脚本的 stdout/stderr，便于 journal 排查
+    if result.stdout:
+        print(result.stdout, end='')
+    if result.stderr:
+        print(f'[subprocess stderr]\n{result.stderr}', end='')
+
+    print(f'--- Finished: {script_name} (returncode={result.returncode}) ---\n')
 
 
 def main():
@@ -182,24 +192,41 @@ def main():
                 print('Exit command (#) received, shutting down...')
                 break
 
-            # 解析 Key=X 格式，取等号后面的第一个字符
+            # 解析 Key=X 格式，取等号后面的第一个字符作为命令
             cmd = None
+            full_val = ''
             if 'Key=' in line:
                 val = line.split('Key=', 1)[1].strip()
                 if val:
                     cmd = val[0].upper()
+                    full_val = val
 
             if cmd not in COMMANDS:
                 print(f'  Unknown command, waiting...')
                 continue
 
-            print(f'  Command=Key={cmd} → {COMMANDS[cmd]}')
+            # 构建子脚本额外参数
+            extra_args = None
+            if cmd == 'C':
+                # Key=C3 → digit=3; 提取命令字母后的数字
+                digit = None
+                remainder = full_val[1:] if len(full_val) > 1 else ''
+                digit_chars = ''.join(c for c in remainder if c.isdigit())
+                if digit_chars:
+                    digit = digit_chars[0]  # 只取第一个数字
+                if digit is not None:
+                    extra_args = ['--digit', digit]
+                # 无头模式下不需要 GUI
+                extra_args = (extra_args or []) + ['--no-gui']
+
+            print(f'  Command=Key={cmd} → {COMMANDS[cmd]}'
+                  + (f' (extra_args={extra_args})' if extra_args else ''))
 
             # 关闭串口让子脚本使用
             ser.close()
             time.sleep(0.2)
 
-            run_script(COMMANDS[cmd])
+            run_script(COMMANDS[cmd], extra_args)
 
             # 子脚本结束后重新打开串口
             time.sleep(0.2)
