@@ -10,17 +10,21 @@ Central control: 读取串口指令，调度对应的检测脚本。
 import os
 import sys
 import time
+import atexit
 import subprocess
 import serial
-import RPi.GPIO as GPIO
+
+try:
+    import RPi.GPIO as GPIO
+    GPIO_AVAILABLE = True
+except ImportError:
+    GPIO_AVAILABLE = False
 
 
 SERIAL_PORT = '/dev/ttyAMA0'
 BAUDRATE = 115200
 
-# GPIO pins (BCM numbering, 高电平点亮)
-LED1_PIN = 18   # BCM 18 → LED1: 程序运行状态灯
-LED2_PIN = 23   # BCM 23 → LED2: 子脚本执行状态灯
+PID_FILE = '/tmp/central_control.pid'
 
 # 三个脚本与本文件放在同一目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -31,34 +35,103 @@ COMMANDS = {
     'C': 'numbered_square_pi_v3.py',
 }
 
-
-def open_serial():
-    """打开串口并等待硬件稳定，避免首字节丢失"""
-    ser = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=0.1)
-    ser.reset_input_buffer()    # 清空缓冲区残留数据
-    time.sleep(0.1)             # 等待 UART 硬件稳定
-    return ser
+# GPIO 引脚（BCM 编号）
+LED1_PIN = 18   # LED1: 启动闪烁两次后常亮，程序结束熄灭
+LED2_PIN = 23   # LED2: 执行子脚本时点亮，执行完熄灭
 
 
 def setup_gpio():
     """初始化 GPIO 引脚"""
+    if not GPIO_AVAILABLE:
+        return
     GPIO.setmode(GPIO.BCM)
+    GPIO.setwarnings(False)
     GPIO.setup(LED1_PIN, GPIO.OUT, initial=GPIO.LOW)
     GPIO.setup(LED2_PIN, GPIO.OUT, initial=GPIO.LOW)
 
 
+def cleanup_gpio():
+    """清理 GPIO，熄灭所有 LED"""
+    if not GPIO_AVAILABLE:
+        return
+    GPIO.output(LED1_PIN, GPIO.LOW)
+    GPIO.output(LED2_PIN, GPIO.LOW)
+    GPIO.cleanup()
+
+
 def led1_blink_twice():
-    """LED1 闪烁两次（亮 0.3s / 灭 0.3s）"""
+    """LED1 闪烁两次后保持常亮"""
+    if not GPIO_AVAILABLE:
+        return
     for _ in range(2):
         GPIO.output(LED1_PIN, GPIO.HIGH)
         time.sleep(0.3)
         GPIO.output(LED1_PIN, GPIO.LOW)
         time.sleep(0.3)
+    GPIO.output(LED1_PIN, GPIO.HIGH)  # 常亮
 
 
-def cleanup_gpio():
-    """清理 GPIO 资源"""
-    GPIO.cleanup()
+def acquire_lock():
+    """确保只有一个 central_control 实例在运行"""
+    if os.path.exists(PID_FILE):
+        with open(PID_FILE, 'r') as f:
+            old_pid = f.read().strip()
+        if old_pid:
+            try:
+                os.kill(int(old_pid), 0)  # 检查进程是否存在
+                print(f'ERROR: central_control already running (PID={old_pid})')
+                print(f'  If sure it is not, remove {PID_FILE} and retry.')
+                sys.exit(1)
+            except (OSError, ValueError, ProcessLookupError):
+                os.remove(PID_FILE)  # 进程已不存在，清理残留文件
+
+    with open(PID_FILE, 'w') as f:
+        f.write(str(os.getpid()))
+    atexit.register(lambda: os.path.exists(PID_FILE) and os.remove(PID_FILE))
+
+
+def open_serial():
+    """打开串口并等待硬件稳定，避免首字节丢失"""
+    ser = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=0.5)
+    ser.reset_input_buffer()
+    time.sleep(0.1)
+    return ser
+
+
+def read_line_from_serial(ser):
+    """
+    稳健读取一行：先读所有可用字节拼到缓冲区，再取完整行。
+    避免因 timeout 过短导致一条消息被拆成多段。
+    """
+    buf = b''
+    while True:
+        waiting = ser.in_waiting
+        if waiting > 0:
+            chunk = ser.read(waiting)
+            buf += chunk
+        else:
+            # 没有更多可用数据，尝试读一个字节等待新数据
+            byte = ser.read(1)
+            if byte:
+                buf += byte
+                continue
+            else:
+                # timeout 到期，无新数据
+                break
+
+    if not buf:
+        return None
+
+    # 取第一个完整行（以 \n 分隔）
+    lines = buf.split(b'\n')
+    # 把不完整的剩余部分放回缓冲区... 但我们没有地方放。
+    # 简化处理：返回第一个非空行，丢弃不完整尾部。
+    for line in lines:
+        stripped = line.replace(b'\r', b'').strip()
+        if stripped:
+            return stripped.decode('utf-8', errors='ignore')
+
+    return None
 
 
 def run_script(script_name):
@@ -67,26 +140,28 @@ def run_script(script_name):
     python = sys.executable
     print(f'--- Running: {python} {script_path} ---')
 
-    # LED2 点亮，表示正在执行子脚本
-    GPIO.output(LED2_PIN, GPIO.HIGH)
+    # LED2 点亮：开始执行子脚本
+    if GPIO_AVAILABLE:
+        GPIO.output(LED2_PIN, GPIO.HIGH)
 
     subprocess.run([python, script_path], cwd=SCRIPT_DIR)
 
-    # LED2 熄灭，表示执行完毕
-    GPIO.output(LED2_PIN, GPIO.LOW)
+    # LED2 熄灭：子脚本执行完毕
+    if GPIO_AVAILABLE:
+        GPIO.output(LED2_PIN, GPIO.LOW)
 
     print(f'--- Finished: {script_name} ---\n')
 
 
 def main():
+    acquire_lock()
+
     # 初始化 GPIO
     setup_gpio()
+    atexit.register(cleanup_gpio)
 
-    # LED1 闪烁两次，表示程序启动
+    # LED1 闪烁两次后常亮
     led1_blink_twice()
-
-    # LED1 常亮，表示程序正在运行中
-    GPIO.output(LED1_PIN, GPIO.HIGH)
 
     print('Central control started.')
     print('Commands: Key=A → basic  |  Key=B → detect_squares  |  Key=C → numbered_square')
@@ -96,19 +171,23 @@ def main():
 
     try:
         while True:
-            raw = ser.readline()
-            line = raw.decode('utf-8', errors='ignore').strip()
+            line = read_line_from_serial(ser)
             if not line:
                 continue
 
             print(f'Received: {line}')
+
+            # 检测到 # 时退出程序
+            if '#' in line:
+                print('Exit command (#) received, shutting down...')
+                break
 
             # 解析 Key=X 格式，取等号后面的第一个字符
             cmd = None
             if 'Key=' in line:
                 val = line.split('Key=', 1)[1].strip()
                 if val:
-                    cmd = val[0].upper()  # 取第一个字符，统一转大写
+                    cmd = val[0].upper()
 
             if cmd not in COMMANDS:
                 print(f'  Unknown command, waiting...')
@@ -122,7 +201,7 @@ def main():
 
             run_script(COMMANDS[cmd])
 
-            # 子脚本结束后重新打开串口（使用稳定初始化）
+            # 子脚本结束后重新打开串口
             time.sleep(0.2)
             ser = open_serial()
             print('Waiting for next command...')
@@ -132,8 +211,6 @@ def main():
     finally:
         if ser.is_open:
             ser.close()
-        # 熄灭 LED1 并清理 GPIO
-        GPIO.output(LED1_PIN, GPIO.LOW)
         cleanup_gpio()
 
 
