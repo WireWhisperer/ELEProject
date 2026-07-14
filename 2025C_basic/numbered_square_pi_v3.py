@@ -14,6 +14,7 @@ import argparse
 import glob
 import os
 import time
+import serial
 from dataclasses import dataclass
 
 import cv2
@@ -21,7 +22,8 @@ import numpy as np
 from picamera2 import Picamera2
 
 from detect_squares_pi_single_frame_v7 import (
-    find_a4_outer_quad, order_points, correct_square_size
+    find_a4_outer_quad, order_points, correct_square_size,
+    estimate_distance, get_outer_frame_params
 )
 
 A4_W_CM, A4_H_CM = 21.0, 29.7
@@ -432,6 +434,10 @@ def process_frame(frame, requested_digit, hog, bank, debug=False):
         return img, None
     cv2.drawContours(img, [approx], -1, (0, 255, 0), 2)
 
+    left_pix, right_pix = get_outer_frame_params(approx)
+    outer_height = (left_pix + right_pix) / 2.0
+    distance_cm = float(estimate_distance(outer_height)) if outer_height > 0 else 0.0
+
     src = order_points(approx.reshape(4, 2).astype(np.float32))
     dw, dh = int(A4_W_CM*PROCESS_SCALE), int(A4_H_CM*PROCESS_SCALE)
     dst = np.float32([[0, 0], [dw-1, 0], [dw-1, dh-1], [0, dh-1]])
@@ -538,6 +544,7 @@ def process_frame(frame, requested_digit, hog, bank, debug=False):
         'ocr_hard_prediction': target.predicted,
         'selection_mode': selection_mode,
         'ocr_margin': target_margin,
+        'distance_cm': distance_cm,
         'raw_cm': square.raw_cm,
         'side_cm': square.corrected_cm,
         'geometry_score': square.score,
@@ -576,6 +583,9 @@ def main():
     camera.configure(config)
     camera.start()
     time.sleep(max(args.warmup, 0.0))
+
+    ser = serial.Serial('/dev/ttyAMA0', 115200, timeout=0.1)
+
     input(f'ID={requested}. Place target, then press Enter to measure...')
     try:
         frame = None
@@ -587,12 +597,16 @@ def main():
         cv2.imwrite('numbered_square_pi_v3_result.jpg', output)
         if result:
             print(f"RESULT: ID={requested}, x={result['side_cm']:.2f} cm")
+            msg = f"D={result['distance_cm']:.1f},x={result['side_cm']:.2f},type=square\r\n"
+            ser.write(msg.encode('utf-8'))
+            print(f'Sent via serial: {msg.strip()}')
         else:
             print('RESULT: measurement failed; use --debug to inspect images.')
         if not args.no_gui:
             cv2.imshow('Numbered Square Pi V3', output)
             cv2.waitKey(0)
     finally:
+        ser.close()
         camera.stop()
         cv2.destroyAllWindows()
 

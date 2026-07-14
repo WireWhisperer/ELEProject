@@ -21,12 +21,15 @@ try:
         ser.write(msg.encode('utf-8'))
 
         # ----- 接收 -----
-        line = ser.readline().decode('utf-8', errors='ignore').strip()
+        raw = ser.readline()
+        line = raw.decode('utf-8', errors='ignore').strip()
         if line:
             print(f"收到: {line}")
             # 如果是 key=xxx 格式就存起来
-            if line.startswith("key="):
-                received_key = line[4]  # 取 "key=" 后面的值，如 "1"、"A"
+            if "Key=" in line:
+                val = line.split("Key=", 1)[1].strip()
+                if val:
+                    received_key = val[0]  # 只取第一个字符，如 "1"、"A"
 
         time.sleep(0.5)
 

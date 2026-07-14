@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import time
+import serial
 from dataclasses import dataclass
 from typing import List, Tuple
 from picamera2 import Picamera2
@@ -514,7 +515,7 @@ def process_frame(frame):
     a4_outer,approx=find_a4_outer_quad(thresh)
     if a4_outer is None or approx is None:
         cv2.putText(img,'No valid A4 outer frame',(20,80),cv2.FONT_HERSHEY_SIMPLEX,.7,(0,0,255),2)
-        return img
+        return img, None, None
     # 直接画实际用于透视的四边形，便于确认选中的是黑框外缘。
     cv2.drawContours(img,[approx],-1,(0,255,0),2)
 
@@ -557,7 +558,7 @@ def process_frame(frame):
     cv2.imwrite('debug_06_clean_binary.jpg',clean_binary)
     if not squares:
         cv2.putText(img,'No valid square',(20,85),cv2.FONT_HERSHEY_SIMPLEX,.75,(0,0,255),2)
-        return img
+        return img, distance_cm, None
     smallest=min(squares,key=lambda s:s.avg_side_length)
     # 距离尚未标定时不应用距离补偿，避免左上结果与轮廓文字不一致。
     raw_side_cm=smallest.avg_side_length/scale
@@ -579,7 +580,7 @@ def process_frame(frame):
         calibrated_cm=correct_square_size(raw_cm)
         final_cm=get_final_square_size(raw_cm)
         print(f'  square[{i}]: raw={raw_cm:.3f}cm, calibrated={calibrated_cm:.3f}cm, final={final_cm:.3f}cm, method={sq.detection_method}, score={sq.score:.3f}')
-    return img
+    return img, distance_cm, side_cm
 
 if __name__=='__main__':
     # 单帧调试模式：启动相机后等待曝光稳定，只拍摄和检测一次。
@@ -591,6 +592,8 @@ if __name__=='__main__':
     print('Camera started; waiting for exposure/AWB...')
     time.sleep(2.0)
 
+    ser = serial.Serial('/dev/ttyAMA0', 115200, timeout=0.1)
+
     try:
         frame_rgb=picam2.capture_array()
         frame_bgr=cv2.cvtColor(frame_rgb,cv2.COLOR_RGB2BGR)
@@ -598,11 +601,16 @@ if __name__=='__main__':
         print(f'Captured: {frame_bgr.shape[1]}x{frame_bgr.shape[0]}')
 
         start=time.perf_counter()
-        result=process_frame(frame_bgr)
+        result, distance_cm, side_cm = process_frame(frame_bgr)
         elapsed=(time.perf_counter()-start)*1000.0
         cv2.imwrite('debug_07_result.jpg',result)
         print(f'Processing time: {elapsed:.1f} ms')
         print('Saved debug_00_original.jpg through debug_07_result.jpg')
+
+        if distance_cm is not None and side_cm is not None:
+            msg = f"D={distance_cm:.1f},x={side_cm:.2f},type=square\r\n"
+            ser.write(msg.encode('utf-8'))
+            print(f'Sent via serial: {msg.strip()}')
 
         # 有桌面环境时显示；通过 SSH 无显示环境时，注释下面四行即可。
         cv2.imshow('Original',frame_bgr)
@@ -610,5 +618,6 @@ if __name__=='__main__':
         print('Press any key to exit.')
         cv2.waitKey(0)
     finally:
+        ser.close()
         picam2.stop()
         cv2.destroyAllWindows()

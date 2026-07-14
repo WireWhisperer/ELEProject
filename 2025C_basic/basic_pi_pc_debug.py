@@ -1,6 +1,7 @@
 import numpy as np
 import argparse
 import time
+import serial
 import cv2
 from picamera2 import Picamera2
 
@@ -258,6 +259,9 @@ if __name__ == "__main__":
     picam2.configure(config)
     picam2.start()
     time.sleep(2.0)
+
+    ser = serial.Serial('/dev/ttyAMA0', 115200, timeout=0.1)
+
     print("实时预览：空格键测量，s保存，q退出")
 
     last_display = None
@@ -313,8 +317,11 @@ if __name__ == "__main__":
                             cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
                 print(f'FINAL: D={final_d:.1f}cm, x={final_x:.2f}cm, type={final_type}, '
                       f'valid={len(valid)}/{SAMPLE_COUNT}, time={time.perf_counter()-t0:.2f}s')
+                msg = f"D={final_d:.1f},x={final_x:.2f},type={final_type}\r\n"
+                ser.write(msg.encode('utf-8'))
             last_display = output
             display_since = time.monotonic()
     finally:
+        ser.close()
         picam2.stop()
         cv2.destroyAllWindows()
